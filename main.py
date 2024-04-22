@@ -21,9 +21,9 @@ import requests
 
 
 class PepperGPT:
-    def __init__(self):
-        self.IP = "192.168.1.58"
-        self.PORT = 9559
+    def __init__(self, ip, port):
+        self.IP = ip
+        self.PORT = port
 
         # animation = session.service("ALAnimationPlayer")
         self.ANIMATOR = ALProxy("AlAnimationPlayer", self.IP, self.PORT)
@@ -71,5 +71,5 @@ class PepperGPT:
 
 
 if __name__ == '__main__':
-    pepper_gpt = PepperGPT()
+    pepper_gpt = PepperGPT("192.168.1.58", 9559)
     pepper_gpt.main()
