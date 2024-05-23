@@ -15,6 +15,7 @@
     Lachlan Paul, 2024
 """
 import random
+import time
 
 from naoqi import ALProxy
 import requests
@@ -22,13 +23,17 @@ import requests
 
 class PepperGPT:
     def __init__(self):
-        self.IP = "192.168.1.58"
+        self.IP = "10.174.154.11"
         self.PORT = 9559
+        self.RECORDING_PATH = "home/nao/lachlan/audio_recording/recording.wav"
 
         # animation = session.service("ALAnimationPlayer")
-        self.ANIMATOR = ALProxy("AlAnimationPlayer", self.IP, self.PORT)
+        self.ANIMATION = ALProxy("ALAnimationPlayer", self.IP, self.PORT)
         self.NETWORK = ALProxy("ALConnectionManager", self.IP, self.PORT)
         self.TTS = ALProxy("ALTextToSpeech", self.IP, self.PORT)
+        self.AUDIORECORDER = ALProxy("ALAudioDevice", self.IP, self.PORT)
+        self.SOUND_DETECT = ALProxy("ALSoundDetection", self.IP, self.PORT)
+        self.MEMORY = ALProxy("ALMemory", self.IP, self.PORT)
 
         # TODO: Fil the Big-Fat-List-Of-Animation-Names(tm) with animation names (what else?)
         # Big-Fat-List-Of-Animation-Names(tm)
@@ -52,22 +57,54 @@ class PepperGPT:
             # This should hopefully be the AI's response to the audio
             return response.text
 
+    def record_audio(self):
+        self.AUDIORECORDER.startMicrophonesRecording(self.RECORDING_PATH)
+        time.sleep(10)
+        self.AUDIORECORDER.stopMicrophonesRecording()
+
+    def sound_detected(self, *args, **kwargs):
+        if args[0] == 1:
+            self.TTS.say("I heard something")
+            print("I HEARD SOMETHING")
+
     def main(self):
+        # self.SOUND_DETECT.setParameter("Sensitivity", 0.9)
+        # self.SOUND_DETECT.subscribe("SoundDetected")
+        # self.MEMORY.subscribeToEvent("SoundDetected", "main.py", "self.sound_detected")
+
+        while True:
+            self.SOUND_DETECT.setParameter("Sensitivity", 1.0)
+            # self.SOUND_DETECT.subscribe("SoundDetected")
+            # self.MEMORY.subscribeToEvent("SoundDetected", "PepperGPT", self.sound_detected)
+            print(self.MEMORY.getData("SoundDetected"))
+            print(len(self.MEMORY.getData("SoundDetected")))
+            if len(self.MEMORY.getData("SoundDetected")) > 1:
+                break
         try:
-            response = self.upload_audio("input.wav", "http://127.0.0.1:5000/upload")
-
-            emotion, response = response.split("|")
-
-            for feeling in self.EMOTIONS.keys():
-                if feeling == emotion:
-                    animation_to_play = random.choice(self.EMOTIONS[feeling])
-
-                    # TODO: Make this the correct path
-                    self.ANIMATOR.run(animation_to_play)
-                    self.TTS.say(response)
+            print("helplo")
+            self.AUDIORECORDER.startMicrophonesRecording(self.RECORDING_PATH)
+            print("helload")
+            time.sleep(5)
+            self.AUDIORECORDER.stopMicrophonesRecording()
+            print("hello")
+            quit()
         except RuntimeError:
-            # TODO: Place animation here. Thinking or shrugging
-            self.TTS.say("Hmm, it seems I'm not connected, check my wifi connection, or let my programmer know.")
+            pass
+        # try:
+        #     response = self.upload_audio(self.RECORDING_PATH, "http://127.0.0.1:5000/upload")
+        #
+        #     emotion, response = response.split("|")
+        #
+        #     for feeling in self.EMOTIONS.keys():
+        #         if feeling == emotion:
+        #             animation_to_play = random.choice(self.EMOTIONS[feeling])
+        #
+        #             # TODO: Make this the correct path
+        #             self.ANIMATION.run(animation_to_play)
+        #             self.TTS.say(response)
+        # except RuntimeError:
+        #     # TODO: Place animation here. Thinking or shrugging
+        #     self.TTS.say("Hmm, it seems I'm not connected, check my wifi connection, or let my programmer know.")
 
 
 if __name__ == '__main__':
