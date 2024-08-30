@@ -14,99 +14,118 @@
 
     Lachlan Paul, 2024
 """
+import os
 import random
+import sys
 import time
 
-from naoqi import ALProxy
+import naoqi
 import requests
+from naoqi import ALProxy, ALBroker
+from dotenv import load_dotenv
 
 
-class PepperGPT:
-    def __init__(self):
-        self.IP = "10.174.154.11"
-        self.PORT = 9559
-        self.RECORDING_PATH = "home/nao/lachlan/audio_recording/recording.wav"
+class PepperGPT(naoqi.ALModule):
+    def __init__(self, ip, port, param):
+        self.ip = ip
+        self.port = port
+        self.recording_location = "home/nao/PepperGPT/temp_recording/temp.wav"
+        # This should be the link to your server where the text is transcribed and then fed to GPT.
+        self.transcription_gpt_server = "http://127.0.0.1:5000/upload"
 
-        # animation = session.service("ALAnimationPlayer")
-        self.ANIMATION = ALProxy("ALAnimationPlayer", self.IP, self.PORT)
-        self.NETWORK = ALProxy("ALConnectionManager", self.IP, self.PORT)
-        self.TTS = ALProxy("ALTextToSpeech", self.IP, self.PORT)
-        self.AUDIORECORDER = ALProxy("ALAudioDevice", self.IP, self.PORT)
-        self.SOUND_DETECT = ALProxy("ALSoundDetection", self.IP, self.PORT)
-        self.MEMORY = ALProxy("ALMemory", self.IP, self.PORT)
+        # Secret key
+        self.SERVER_PASSCODE = load_dotenv(os.getenv("PASSCODE"))
+
+        self.broker = ALBroker("broker", "0.0.0.0", 0, self.ip, int(self.port))
+        naoqi.ALModule.__init__(self, param)
+
+        self.memory = ALProxy("ALMemory")
+        self.speech_recognition = ALProxy("ALSpeechRecognition", self.ip, self.port)
+        self.audio_recorder = ALProxy("ALAudioRecorder", self.ip, self.port)
 
         # TODO: Fil the Big-Fat-List-Of-Animation-Names(tm) with animation names (what else?)
         # Big-Fat-List-Of-Animation-Names(tm)
         self.EMOTIONS = {
             "HAPPY": ["placeholder"],
             "SAD": ["placeholder"],
-            "CONFUSED": {"placeholder"},
+            "CONFUSED": ["placeholder"],
             "SORRY": ["placeholder"],
             "ANGRY": ["placeholder"],
             "GREETING": ["placeholder"],
             "END": ["placeholder"]
         }
 
-    def upload_audio(self, file_path, server_url):
-        with open(file_path, 'rb') as audio_file:
-            files = {"audio_file": audio_file}
-            headers = {"Passcode": "p$T9wQz2a#R8fL!sE6hGn5vXyY3jU7iKo0bC1xZ4qJmO"}
+    def start(self):
+        # A current limitation is that Pepper only begins recording after they hear speech,
+        # so it will wait for the current speech to stop, then start recording.
+        # I have not yet figured out a workaround for this.
+        self.speech_recognition.subscribe("Test_ASR")
+        self.memory.subscribeToEvent("WordRecognized", self.getName(), "processRemote")
+        print("---Started!---")
 
-            response = requests.post(server_url, files=files, headers=headers)
+    def stop(self):
+        self.speech_recognition.unsubscribe("Test_ASR")
+        self.broker.shutdown()
+        self.memory.unsubscribeToEvent("WordRecognized", self.getName())
+        print("---Stopped!---")
 
-            # This should hopefully be the AI's response to the audio
-            return response.text
+    def run(self):
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print("Interrupted by user, shutting down")
+            self.stop()
+            sys.exit(0)
+
+    def processRemote(self, signalName, message):
+        self.record_audio()
+        response = self.upload_audio()
+        self.say_response(response)
 
     def record_audio(self):
-        self.AUDIORECORDER.startMicrophonesRecording(self.RECORDING_PATH)
+        # TODO: Make this record for as long as it can detect sound above a certain level.
+        print("---Recording audio---")
+        self.audio_recorder.startMicrophonesRecording(self.recording_location, "wav", 16000, (0, 0, 1, 0))
         time.sleep(10)
-        self.AUDIORECORDER.stopMicrophonesRecording()
 
-    def sound_detected(self, *args, **kwargs):
-        if args[0] == 1:
-            self.TTS.say("I heard something")
-            print("I HEARD SOMETHING")
+        print("---Finished recording audio---")
+        self.audio_recorder.stopMicrophonesRecording()
 
-    def main(self):
-        # self.SOUND_DETECT.setParameter("Sensitivity", 0.9)
-        # self.SOUND_DETECT.subscribe("SoundDetected")
-        # self.MEMORY.subscribeToEvent("SoundDetected", "main.py", "self.sound_detected")
+    def upload_audio(self):
+        # Uploads the audio file to the server url set in the init phase
+        with open(self.recording_location, 'rb') as audio_file:
+            files = {"audio_file": audio_file}
 
-        while True:
-            self.SOUND_DETECT.setParameter("Sensitivity", 1.0)
-            # self.SOUND_DETECT.subscribe("SoundDetected")
-            # self.MEMORY.subscribeToEvent("SoundDetected", "PepperGPT", self.sound_detected)
-            print(self.MEMORY.getData("SoundDetected"))
-            print(len(self.MEMORY.getData("SoundDetected")))
-            if len(self.MEMORY.getData("SoundDetected")) > 1:
-                break
+            # My server has a passcode, and yours should too, to avoid people leeching off of your GPT API.
+            # Make sure to hide the passcode in a .env file.
+            headers = {"Passcode": self.SERVER_PASSCODE}
+
+            # Gets the text response from the server
+            return requests.post(self.transcription_gpt_server, files=files, headers=headers).text
+
+    def say_response(self, response):
+        """
+            Says the text, and if found, plays an animation related to an animation.
+            :param response: the text to say. should have an emotion tied to the end, eg; "I am happy! | HAPPY"
+        """
         try:
-            print("helplo")
-            self.AUDIORECORDER.startMicrophonesRecording(self.RECORDING_PATH)
-            print("helload")
-            time.sleep(5)
-            self.AUDIORECORDER.stopMicrophonesRecording()
-            print("hello")
-            quit()
+            emotion, response = response.split("|")
+
+            for feeling in self.EMOTIONS.keys():
+                if feeling == emotion:
+                    animation_to_play = random.choice(self.EMOTIONS[feeling])
+
+                    # TODO: Make this the correct path
+                    # self.ANIMATION.run(animation_to_play)
+                    self.TTS.say(response)
         except RuntimeError:
-            pass
-        # try:
-        #     response = self.upload_audio(self.RECORDING_PATH, "http://127.0.0.1:5000/upload")
-        #
-        #     emotion, response = response.split("|")
-        #
-        #     for feeling in self.EMOTIONS.keys():
-        #         if feeling == emotion:
-        #             animation_to_play = random.choice(self.EMOTIONS[feeling])
-        #
-        #             # TODO: Make this the correct path
-        #             self.ANIMATION.run(animation_to_play)
-        #             self.TTS.say(response)
-        # except RuntimeError:
-        #     # TODO: Place animation here. Thinking or shrugging
-        #     self.TTS.say("Hmm, it seems I'm not connected, check my wifi connection, or let my programmer know.")
+            # TODO: Place animation here. Thinking or shrugging
+            self.TTS.say("Hmm, it seems I'm not connected to the internet, check my wifi connection, or let my "
+                         "programmer know.")
 
 
-if __name__ == '__main__':
-    pepper_gpt = PepperGPT()
-    pepper_gpt.main()
+if __name__ == "__main__":
+    pepper_gpt = PepperGPT("10.174.154.14", 9559, "pepper_gpt")
+    pepper_gpt.start()
+    pepper_gpt.run()
