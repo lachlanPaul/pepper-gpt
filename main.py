@@ -26,15 +26,18 @@ from dotenv import load_dotenv
 
 
 class PepperGPT(naoqi.ALModule):
-    def __init__(self, ip, port, param):
+    def __init__(self, ip, port, whisper_server, server_has_passcode, param):
         self.ip = ip
         self.port = port
         self.recording_location = "home/nao/PepperGPT/temp_recording/temp.wav"
-        # This should be the link to your server where the text is transcribed and then fed to GPT.
-        self.transcription_gpt_server = "http://127.0.0.1:5000/upload"
 
-        load_dotenv()
-        self.SERVER_PASSCODE = os.getenv("PASSCODE")
+        # This should be the link to your server where the text is transcribed and then fed to GPT.
+        self.whisper_server = whisper_server
+        self.server_has_passcode = server_has_passcode
+
+        if self.server_has_passcode:
+            load_dotenv()
+            self.SERVER_PASSCODE = os.getenv("PASSCODE")
 
         self.broker = ALBroker("broker", "0.0.0.0", 0, self.ip, int(self.port))
         naoqi.ALModule.__init__(self, param)
@@ -99,7 +102,10 @@ class PepperGPT(naoqi.ALModule):
 
             # My server has a passcode, and yours should too, to avoid people leeching off of your GPT API.
             # Make sure to hide the passcode in a .env file.
-            headers = {"Passcode": self.SERVER_PASSCODE}
+            if self.server_has_passcode:
+                headers = {"Passcode": self.SERVER_PASSCODE}
+            else:
+                headers = {}
 
             # Gets the text response from the server
             return requests.post(self.transcription_gpt_server, files=files, headers=headers).text
@@ -126,6 +132,11 @@ class PepperGPT(naoqi.ALModule):
 
 
 if __name__ == "__main__":
-    pepper_gpt = PepperGPT("10.174.154.14", 9559, "pepper_gpt")
+    ip = "10.174.154.14"
+    port = 9559
+    whisper_server = "http://127.0.0.1:5000/upload"
+    server_has_passcode = True
+
+    pepper_gpt = PepperGPT(ip, port, whisper_server, server_has_passcode, "pepper_gpt")
     pepper_gpt.start()
     pepper_gpt.run()
