@@ -33,8 +33,8 @@ class PepperGPT(naoqi.ALModule):
         # This should be the link to your server where the text is transcribed and then fed to GPT.
         self.transcription_gpt_server = "http://127.0.0.1:5000/upload"
 
-        # Secret key
-        self.SERVER_PASSCODE = load_dotenv(os.getenv("PASSCODE"))
+        load_dotenv()
+        self.SERVER_PASSCODE = os.getenv("PASSCODE")
 
         self.broker = ALBroker("broker", "0.0.0.0", 0, self.ip, int(self.port))
         naoqi.ALModule.__init__(self, param)
